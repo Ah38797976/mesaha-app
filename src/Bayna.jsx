@@ -395,12 +395,24 @@ const WHEEL_CATEGORIES = [
   { key: 'surprise', label: '🎁 مفاجأة' },
 ];
 const WHEEL_FALLBACK = {
-  funny: ['قلد ضحكة شريكك 😂', 'احكِ أطرف موقف صار بينكما', 'من أكثر واحد يضحك بسرعة بينكما؟'],
-  memory: ['اذكروا أول مرة تكلمتوا فيها', 'شاركوا صورة تمثل أجمل ذكرى', 'شنو أول انطباع كان عندك؟'],
-  surprise: ['أرسل صوتية بدل الكتابة الحين 🎙️', 'اختر له/لها لقب جديد اليوم', 'اكتب دعاء صغير لشريكك'],
+  funny: [
+    'قلد ضحكة شريكك 😂', 'احكِ أطرف موقف صار بينكما', 'من أكثر واحد يضحك بسرعة بينكما؟',
+    'قلد طريقة كلام شريكك لمدة دقيقة 😂', 'احكِ أغرب حلم شفته',
+  ],
+  memory: [
+    'اذكروا أول مرة تكلمتوا فيها', 'شاركوا صورة تمثل أجمل ذكرى', 'شنو أول انطباع كان عندك؟',
+    'اذكروا أول هدية تبادلتوها', 'وش أكثر رحلة أو خرجة ما تنسونها؟',
+  ],
+  surprise: [
+    'أرسل صوتية بدل الكتابة الحين 🎙️', 'اختر له/لها لقب جديد اليوم', 'اكتب دعاء صغير لشريكك',
+    'أرسل إيموجي يوصف شعورك الحين بدون كلمات', 'خطط مفاجأة صغيرة لبكرة وما تقول وش هي',
+  ],
 };
 
-function WheelTab({ c, coupleId, me }) {
+// Every spin is written to bayna_wheel_spins with its resolved text already
+// attached, and both partners subscribe to that table over Realtime — so
+// whoever spins, the question lands for both of them at the same time.
+function WheelTab({ c, coupleId, me, partner }) {
   const loveQs = useBaynaContent('question', 'sincerity', 'romantic');
   const emotionalQs = useBaynaContent('question', 'sincerity', 'emotional');
   const messages = useBaynaContent('message', 'wheel', null);
@@ -410,29 +422,47 @@ function WheelTab({ c, coupleId, me }) {
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [result, setResult] = useState(null);
+  const [spunBy, setSpunBy] = useState(null);
 
-  const spin = () => {
+  // Listen for spins — from either partner — and reveal them the same way.
+  useEffect(() => {
+    const ch = supabase.channel(`bayna-wheel-${coupleId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bayna_wheel_spins', filter: `couple_id=eq.${coupleId}` },
+        (payload) => {
+          const row = payload.new;
+          setSpinning(true);
+          setResult(null);
+          const extra = 1440 + Math.floor(Math.random() * 1440);
+          setRotation((r) => r + extra);
+          setTimeout(() => {
+            setResult({ label: row.result_label, text: row.result_text });
+            setSpunBy(row.user_id);
+            setSpinning(false);
+          }, 2600);
+        })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [coupleId]);
+
+  const spin = async () => {
     if (spinning) return;
-    setSpinning(true);
-    setResult(null);
-    const extra = 1440 + Math.floor(Math.random() * 1440);
-    setRotation((r) => r + extra);
-    setTimeout(() => {
-      const cat = WHEEL_CATEGORIES[Math.floor(Math.random() * WHEEL_CATEGORIES.length)];
-      let text = 'دورو العجلة مرة ثانية 🎡';
-      let contentId = null;
-      const dbPool = pool[cat.key];
-      if (dbPool && dbPool.length) {
-        const item = dbPool[Math.floor(Math.random() * dbPool.length)];
-        text = item.text; contentId = item.id;
-      } else if (WHEEL_FALLBACK[cat.key]) {
-        const arr = WHEEL_FALLBACK[cat.key];
-        text = arr[Math.floor(Math.random() * arr.length)];
-      }
-      setResult({ cat, text });
-      setSpinning(false);
-      supabase.from('bayna_wheel_spins').insert({ couple_id: coupleId, user_id: me.id, category: cat.key, content_id: contentId }).then(() => {});
-    }, 2600);
+    setSpinning(true); // lock the button immediately; the animation itself
+    // starts once our own INSERT comes back over the Realtime listener above.
+    const cat = WHEEL_CATEGORIES[Math.floor(Math.random() * WHEEL_CATEGORIES.length)];
+    let text = 'دورو العجلة مرة ثانية 🎡';
+    let contentId = null;
+    const dbPool = pool[cat.key];
+    if (dbPool && dbPool.length) {
+      const item = dbPool[Math.floor(Math.random() * dbPool.length)];
+      text = item.text; contentId = item.id;
+    } else if (WHEEL_FALLBACK[cat.key]) {
+      const arr = WHEEL_FALLBACK[cat.key];
+      text = arr[Math.floor(Math.random() * arr.length)];
+    }
+    await supabase.from('bayna_wheel_spins').insert({
+      couple_id: coupleId, user_id: me.id, category: cat.key, content_id: contentId,
+      result_text: text, result_label: cat.label,
+    });
   };
 
   return (
@@ -450,8 +480,13 @@ function WheelTab({ c, coupleId, me }) {
 
       {result && (
         <div style={{ background: c.bg2, border: `1px solid ${c.gold}` }} className="rounded-3xl p-5 text-center w-full">
-          <div style={{ color: c.gold }} className="text-xs font-bold mb-2">{result.cat.label}</div>
+          <div style={{ color: c.gold }} className="text-xs font-bold mb-2">{result.label}</div>
           <div style={{ fontFamily: FONT_DISPLAY, color: c.text }} className="text-lg leading-relaxed">{result.text}</div>
+          {spunBy && (
+            <div style={{ color: c.textDim }} className="text-xs mt-3">
+              🎡 {spunBy === me.id ? 'أنت دريت العجلة' : `${partner?.display_name || 'شريكك'} دار العجلة`}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -661,7 +696,7 @@ export function BaynaScreen({ c, coupleId, me, partner }) {
       {sub === 'know' && <KnowBetterTab c={c} coupleId={coupleId} me={me} partner={partner} />}
       {sub === 'whomore' && <WhoMoreTab c={c} coupleId={coupleId} me={me} partner={partner} />}
       {sub === 'sincerity' && <SincerityTab c={c} coupleId={coupleId} me={me} partner={partner} />}
-      {sub === 'wheel' && <WheelTab c={c} coupleId={coupleId} me={me} />}
+      {sub === 'wheel' && <WheelTab c={c} coupleId={coupleId} me={me} partner={partner} />}
       {sub === 'challenge' && <ChallengeTab c={c} coupleId={coupleId} me={me} partner={partner} />}
       {sub === 'stats' && <StatsTab c={c} coupleId={coupleId} me={me} partner={partner} />}
       {sub === 'hassaniya' && <HassaniyaTab c={c} />}

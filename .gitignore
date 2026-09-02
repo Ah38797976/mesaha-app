@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables (contains real Supabase keys locally) — never commit.
+# .env.example is intentionally NOT ignored; it only holds empty placeholders.
+.env
+.env.*
+!.env.example

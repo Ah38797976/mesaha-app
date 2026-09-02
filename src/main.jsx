@@ -42,3 +42,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     {isSupabaseConfigured ? <App /> : <ConfigErrorScreen message={supabaseConfigError} />}
   </React.StrictMode>
 );
+// build trigger

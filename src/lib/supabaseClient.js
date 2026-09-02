@@ -3,33 +3,28 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// This is almost certainly the "خطأ" you were seeing: without VITE_SUPABASE_URL
-// and VITE_SUPABASE_ANON_KEY set (as a local .env file, or as Environment
-// Variables on the hosting provider), the app can't create the Supabase
-// client and nothing (signup, buttons, anything) works.
+// This is almost certainly the "خطأ" you were seeing: without a .env file
+// containing these two variables, the app can't even create the Supabase
+// client, so nothing (signup, buttons, anything) works.
 //
-// IMPORTANT: we deliberately do NOT `throw` here anymore. Throwing at module
-// scope happens the instant this file is imported — before React ever gets a
-// chance to mount — which is exactly what produced a totally blank white
-// page with no visible error. Instead we expose `isSupabaseConfigured` (and
-// `supabaseConfigError`) so the app entry point can detect this case and
-// render a clear, visible error screen. The check itself is NOT removed or
-// weakened — a misconfigured app still cannot silently proceed and hit
-// Supabase with undefined credentials.
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+// We deliberately do NOT throw at module-import time anymore — a throw here
+// happens before React even mounts, outside any component's render, so the
+// ErrorBoundary in main.jsx has nothing to catch and the user just sees a
+// blank page. Instead we export the message and let App.jsx throw it from
+// inside the component tree (see the `if (SUPABASE_CONFIG_ERROR) throw ...`
+// at the top of MesahaApp), where the ErrorBoundary can catch it and show
+// the message + retry button.
+export const SUPABASE_CONFIG_ERROR = (!supabaseUrl || !supabaseAnonKey)
+  ? 'إعدادات Supabase ناقصة: تأكد من وجود ملف .env في جذر المشروع فيه VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY (خذهم من لوحة تحكم مشروعك فـ Supabase > Project Settings > API).'
+  : null;
 
-export const supabaseConfigError = isSupabaseConfigured
+// When config is missing, createClient() itself would throw on bad input
+// (or produce a client that fails on first use). We only ever call
+// createClient with real values — if they're missing, SUPABASE_CONFIG_ERROR
+// above is set and MesahaApp throws before anything touches `supabase`.
+export const supabase = SUPABASE_CONFIG_ERROR
   ? null
-  : 'إعدادات Supabase ناقصة: تأكد من ضبط VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY (محليًا في ملف .env، أو في إعدادات الاستضافة كـ Environment Variables) — خذهم من لوحة تحكم مشروعك فـ Supabase > Project Settings > API، ثم أعد النشر (Redeploy).';
-
-// When misconfigured, `supabase` is left as `null` rather than calling
-// createClient() with undefined values (which throws its own, less clear
-// error). Every consumer of `supabase` in this app only runs from inside
-// user-triggered handlers/effects, never at module scope, so this is safe —
-// the app entry point blocks rendering of the real UI until configured (see
-// main.jsx), so these null-client code paths are never actually reached in
-// the misconfigured state.
-export const supabase = isSupabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
+  : createClient(supabaseUrl, supabaseAnonKey);
 
 // Exposed so a feature that needs raw upload progress (plain XHR doesn't go
 // through the SDK, which has no progress event) can talk to the Storage
@@ -71,7 +66,7 @@ export async function signedUrl(bucket, path, expiresIn = 3600) {
   // TEMP DEBUG: try/catch إضافي حوالين النداء كامل — عشان نمسك حتى
   // الاستثناءات غير المتوقعة (شبكة، CORS، إلخ) اللي ما ترجع كـ
   // { error } عادي من مكتبة supabase-js، وما كانت راح تظهر بالنسخة
-  // السابقة. لا يغير أي سلوك بالمسار الناجح إطلاقًا.
+  // السابقة. لا يغيّر أي سلوك بالمسار الناجح إطلاقًا.
   try {
     const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
     if (error) {

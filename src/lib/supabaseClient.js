@@ -3,16 +3,33 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  // This is almost certainly the "خطأ" you were seeing: without a .env file
-  // containing these two variables, the app can't even create the Supabase
-  // client, so nothing (signup, buttons, anything) works.
-  throw new Error(
-    'إعدادات Supabase ناقصة: تأكد من وجود ملف .env في جذر المشروع فيه VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY (خذهم من لوحة تحكم مشروعك فـ Supabase > Project Settings > API).'
-  );
-}
+// This is almost certainly the "خطأ" you were seeing: without VITE_SUPABASE_URL
+// and VITE_SUPABASE_ANON_KEY set (as a local .env file, or as Environment
+// Variables on the hosting provider), the app can't create the Supabase
+// client and nothing (signup, buttons, anything) works.
+//
+// IMPORTANT: we deliberately do NOT `throw` here anymore. Throwing at module
+// scope happens the instant this file is imported — before React ever gets a
+// chance to mount — which is exactly what produced a totally blank white
+// page with no visible error. Instead we expose `isSupabaseConfigured` (and
+// `supabaseConfigError`) so the app entry point can detect this case and
+// render a clear, visible error screen. The check itself is NOT removed or
+// weakened — a misconfigured app still cannot silently proceed and hit
+// Supabase with undefined credentials.
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabaseConfigError = isSupabaseConfigured
+  ? null
+  : 'إعدادات Supabase ناقصة: تأكد من ضبط VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY (محليًا في ملف .env، أو في إعدادات الاستضافة كـ Environment Variables) — خذهم من لوحة تحكم مشروعك فـ Supabase > Project Settings > API، ثم أعد النشر (Redeploy).';
+
+// When misconfigured, `supabase` is left as `null` rather than calling
+// createClient() with undefined values (which throws its own, less clear
+// error). Every consumer of `supabase` in this app only runs from inside
+// user-triggered handlers/effects, never at module scope, so this is safe —
+// the app entry point blocks rendering of the real UI until configured (see
+// main.jsx), so these null-client code paths are never actually reached in
+// the misconfigured state.
+export const supabase = isSupabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // Exposed so a feature that needs raw upload progress (plain XHR doesn't go
 // through the SDK, which has no progress event) can talk to the Storage
@@ -54,7 +71,7 @@ export async function signedUrl(bucket, path, expiresIn = 3600) {
   // TEMP DEBUG: try/catch إضافي حوالين النداء كامل — عشان نمسك حتى
   // الاستثناءات غير المتوقعة (شبكة، CORS، إلخ) اللي ما ترجع كـ
   // { error } عادي من مكتبة supabase-js، وما كانت راح تظهر بالنسخة
-  // السابقة. لا يغيّر أي سلوك بالمسار الناجح إطلاقًا.
+  // السابقة. لا يغير أي سلوك بالمسار الناجح إطلاقًا.
   try {
     const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
     if (error) {
